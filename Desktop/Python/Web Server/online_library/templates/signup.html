@@ -1,0 +1,22 @@
+{% extends "index.html" %}
+
+{% block content %}
+
+<h3 class="title">Sign Up</h3>
+    <div>
+        <form method="POST" action="/signup">
+            <div class="container">
+            <div class="field">
+                <input class="input is-large" type="email" name="email" placeholder="Email" autofocus="">
+            </div>
+            <div class="field">
+                <input class="input is-large" type="text" name="name" placeholder="Name" autofocus="">
+            </div>
+            <div class="field">
+                <input class="input is-large" type="password" name="password" placeholder="Password">
+            </div>
+            <button type="submit">Sign Up</button>
+        </div>
+        </form>
+    </div>
+{% endblock %}
