@@ -9,3 +9,11 @@
 .field{
    padding: 10px;
 }
+.nav-links{
+    margin: 0px 20px;
+    display: flex;
+    justify-content: flex-end;
+}
+.nav-links > a{
+    padding: 10px;
+}
