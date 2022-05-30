@@ -1,6 +1,5 @@
-from flask import Flask, jsonify, make_response, render_template,request, send_from_directory
-import uuid
-import jwt
+import re
+from flask import Flask, jsonify, render_template,request, send_from_directory
 from datetime import datetime ,timedelta
 import hashlib
 from pymongo import MongoClient
@@ -83,7 +82,7 @@ def signup_user():
     
     if not new_user:
         users_collection.insert_one({ "username":data["username"] ,"email":data['email'], "password":data["password"], "borrowed_books":0})
-        return jsonify({'msg': 'User created successfully'}), 200
+        return jsonify({'msg': 'User created successfully' ,'success': True}), 200
     else:
         return jsonify({'msg': 'Username already exists'}), 400
 
@@ -118,7 +117,7 @@ def login():
             token = create_access_token({'_id':str(ObjectId(user_from_db['_id'])),'username' :user_from_db['username'],"email":user_from_db['email'],'password':user_from_db['password'],"borrowed_books":user_from_db['borrowed_books'] ,'exp': datetime.utcnow() + timedelta(minutes=20)} , app.config['SECRET_KEY'] )
             return jsonify({'token':token})
        
-    return make_response("User not found",401 ,{'WWW.Authentication': 'Basic realm: "login required"'})
+    return jsonify({"message":"user not registered"}),401
 
 with app.test_request_context():
     spec.path(view=login)
@@ -151,7 +150,7 @@ def user():
         user_data['borrowed_books']=user["borrowed_books"]
         result.append(user_data)   
     
-    return jsonify({'users': result}) ,200
+    return jsonify({'users': result, 'success': True}) ,200
 
 with app.test_request_context():
     spec.path(view=user)
@@ -175,14 +174,13 @@ def user_delete():
                     description: Error in deleting user           
     """
     current_user = get_jwt_identity()
-    print(current_user)
     user_to_del=users_collection.find_one({'_id':ObjectId(current_user['_id'])})
     
     if user_to_del: 
         users_collection.delete_one(user_to_del)
         return jsonify({'message':'user deleted successfully'}),200
 
-    return jsonify({'message':'users can not be deleted'}),401
+    return jsonify({'message':'Error,users can not be deleted'}),401
 
 with app.test_request_context():
     spec.path(view=user_delete)
@@ -212,14 +210,14 @@ def user_update():
     _hased_pass = hashlib.sha256(user_data["password"].encode("utf-8")).hexdigest()
     user_to_update=users_collection.find_one({'_id':ObjectId(current_user['_id'])})
 
-    new_data={
-        "borrowed_books": current_user["borrowed_books"],
-        "email": user_data["email"],
-        "password":  _hased_pass,
-        "username": user_data["username"]
-    }
+    # new_data={
+    #     "borrowed_books": current_user["borrowed_books"],
+    #     "email": user_data["email"],
+    #     "password":  _hased_pass,
+    #     "username": user_data["username"]
+    # }
     if user_to_update:
-        users_collection.update_one({'_id':ObjectId(current_user['_id'])},{"$set":new_data})
+        users_collection.update_one({'_id':ObjectId(current_user['_id'])},{"$set":{"borrowed_books": current_user["borrowed_books"],"email": user_data["email"],"password":  _hased_pass}})
         return jsonify({'message':"User updated successfully"}),200
 
     return jsonify({"message":"Error in update data"}),400
@@ -249,11 +247,11 @@ def set_books():
     """
     current_user=get_jwt_identity()
     book_data=request.get_json()
-    old_book= users_collection.find_one({"book_name":book_data['book_name']})
-    print (current_user)
+    old_book= user_books.find_one({"book_name":book_data['book_name']})
+    print(old_book)
     if not old_book:
         if current_user['username'] == book_data['Author']:
-            user_books.insert_one({"book_name":book_data['book_name'], "Author":book_data['Author'] ,"borrowed_status":book_data['borrowed_status'] ,"booking_date": book_data['booking_date'],'time_period':book_data['time_period']})
+            user_books.insert_one({"book_name":book_data['book_name'], "Author":book_data['Author'] ,"borrowed_status":"no" ,"booking_date":book_data['booking_date'],'time_period':0})
             return jsonify({'msg': 'Published  your book successfully'}), 200
         else:
             return jsonify({'msg': "can not add books of other Authors"}), 401
@@ -296,7 +294,48 @@ def books():
 with app.test_request_context():
     spec.path(view=books)
 
-@app.route('/books/<string:bookname>/',methods=['DELETE'])
+@app.route('/booking/<string:bookname>',methods=['PUT'])
+def booking_date(bookname):
+    """booking book 
+        ---
+        put:
+            description: regestring date to borrow book
+            security:
+                -  BearerAuth: []
+            parameters:
+              - name: bookname
+                in: path
+                description: book name
+                required: true
+                schema:
+                    type: string
+            requestBody:
+                required: true             
+                content:
+                    application/json:
+                        schema: RegisterBookSchema 
+            responses: 
+                201:
+                    description: Successfully added borrowing date  
+                    content:
+                        application/json:
+                            schema: RegisterBookSchema 
+                404:
+                    description: Error           
+    """
+    book_data=request.get_json()
+    book_found=user_books.find_one({"book_name":bookname})
+     
+    if book_found:
+        user_books.update_one({"book_name":bookname},{"$set":{"booking_date":book_data['booking_date'],"time_period":book_data['time_period']}})
+        return jsonify({'message': 'successfully registered date to borrow book'}),401
+    else:
+        return jsonify({'message': 'Book does not exist'}),401 
+
+with app.test_request_context():
+    spec.path(view=booking_date)
+
+@app.route('/books/delete/<string:bookname>/',methods=['DELETE'])
 def delete_book(bookname):
     """Delete book 
         ---
@@ -321,7 +360,7 @@ def delete_book(bookname):
                     description: Error in deleting user           
     """
     book_to_del=user_books.find_one({"book_name":bookname})
-    
+ 
     if book_to_del:
         user_books.delete_one(book_to_del)
         return jsonify({'message':'Book deleted successfully'}),200
@@ -335,7 +374,7 @@ with app.test_request_context():
 @jwt_required()
 def borrow(bookname):
     """Borrow Book
-        ---
+    ---
         put:
             tag:
                - books
@@ -357,11 +396,11 @@ def borrow(bookname):
                             schema: BorrowBookSchema                   
                 400: 
                     description: can not Borrow book  
-    """
+"""
     curr_user=get_jwt_identity()
     book_to_borrow=user_books.find_one({"book_name":bookname})
     issue_date = datetime.strptime(book_to_borrow['booking_date'], "%Y-%m-%d")
-    print (issue_date)
+    print (curr_user)
     if not book_to_borrow:
         return jsonify({'message':'Book not found'}),401
 
